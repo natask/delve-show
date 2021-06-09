@@ -24,12 +24,13 @@
 
 (require 'cl-lib)
 (require 'delve)
+(declare-function copy-list "cl-lib")
 
 ;; -----------------------------------------------------------
 ;; * variables
 (defcustom delve-show-tag-data-types '((fuzzy . ((format . "%%%s%%")
                                              ))
-                                   (exact . ((format . "%%\"%s\"%%")
+                                       (exact . ((format . "%%\"%s\"%%")
                                              )))
                                      "Types on how to treat tag search. fuzzy or exact or any other custom type."
 :type '(alist (group (alist (group sexp))))
@@ -48,6 +49,15 @@ Defaults,
 Can be
    'tags-only
    'titles-and-tags"
+  :type 'symbol
+  :group 'delve-show)
+
+(defcustom delve-postprocess-sort-pred (delve-db-zettel-sorting-pred #'time-less-p 'mtime)
+  "Function to type for delve-show.
+Can be
+   'tags-only
+   'titles-and-tags"
+  :type 'function
   :group 'delve-show)
 
 ;; -----------------------------------------------------------
