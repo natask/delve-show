@@ -9,7 +9,7 @@
 ;; Version: 0.0.1
 ;; Keywords: Symbol’s value as variable is void: finder-known-keywords
 ;; Homepage: https://github.com/savnkk/delve-show
-;; Package-Requires: ((emacs "24.3") (delve "0.6"))
+;; Package-Requires: ((emacs "24.3") (delve "0.7"))
 ;;
 ;; This file is not part of GNU Emacs.
 ;;
