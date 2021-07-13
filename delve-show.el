@@ -43,6 +43,13 @@ Defaults,
   - exact."
   :type 'symbol
   :group 'delve-show)
+(defcustom delve-show-fuzzy-title 'fuzzy
+"Default title search type.
+Defaults,
+  - fuzzy.
+  - exact."
+:type 'symbol
+:group 'delve-show)
 
 (defcustom delve-show--parser-type 'tags-only
   "Parser type for delve-show.
@@ -119,19 +126,29 @@ Only works on `ethiopia' and `america'."
     ('tags-only
      `((like tags:tags ,(intern (concat "$r" (number-to-string (+ (length vals) 1)))))))
     ('titles-and-tags
+     (pcase delve-show-fuzzy-title
+       ('exact
+        `((or
+           (like tags:tags ,(intern (concat "$r" (number-to-string (+ (length vals) 1)))))
+           (like titles:title ,(intern (concat "$r" (number-to-string (+ (length vals) 2))))))))
+       ('fuzzy
      `((or
         (like tags:tags ,(intern (concat "$r" (number-to-string (+ (length vals) 1)))))
         (like titles:title ,(intern (concat "$r" (number-to-string (+ (length vals) 2)))))
         (like titles:title ,(intern (concat "$r" (number-to-string (+ (length vals) 3)))))
         (like titles:title ,(intern (concat "$r" (number-to-string (+ (length vals) 4)))))
-        (like titles:title ,(intern (concat "$r" (number-to-string (+ (length vals) 5))))))))))
+        (like titles:title ,(intern (concat "$r" (number-to-string (+ (length vals) 5))))))))))))
 
 (defun delve-show--get-new-vals (val)
   (pcase delve-show--parser-type
     ('tags-only
      (list val))
     ('titles-and-tags
-     (list val val val val val))))
+     (pcase delve-show-fuzzy-title
+       ('fuzzy
+        (list val val))
+        ('exact
+     (list val val val val val))))))
 
 (defun delve-show--parse-helper (stuct vals)
   (let ((valk vals) queries)
@@ -201,12 +218,18 @@ Only works on `ethiopia' and `america'."
               ;;(setq acc (cons (format "%%%s%%" fval) acc))
                  (setq acc (cons (format (delve-show--get-format-string) fval) acc)))
              ('titles-and-tags
+              (pcase delve-show-fuzzy-title
+                ('exact
               (setq acc (cons (pcase (% i 5)
                                (0 (format "%% %s %%" fval))
                                (4 (format "%% %s\"" fval))
                                (3 (format "\"%s %%" fval))
                                (2 (format "%s" fval))
-                               (1 (format (delve-show--get-format-string) fval))) acc))
+                               (1 (format (delve-show--get-format-string) fval))) acc)))
+                ('fuzzy
+                 (setq acc (cons (pcase (% i 2)
+                                   (0 (format "%%%s%%" fval))
+                                   (1 (format (delve-show--get-format-string) fval))) acc))))
               ))
            (setq i (+ 1 i))
            finally (return (reverse acc))))
@@ -220,9 +243,10 @@ Only works on `ethiopia' and `america'."
   )
 
 ;;;###autoload
-(cl-defun delve-show--delve-get-page (&optional (tag-list 'nil) (include-titles 'nil) (search-fuzzy 'nil))
+(cl-defun delve-show--delve-get-page (&optional (tag-list 'nil) (include-titles 'nil) (search-fuzzy 'nil) (title-fuzzy 'nil))
   (let* ((delve-show--parser-type (if include-titles 'titles-and-tags 'tags-only))
          (delve-show-tag-data-type (if search-fuzzy 'fuzzy 'exact))
+         (delve-show-fuzzy-title (if title-fuzzy 'fuzzy 'exact))
          (val (-as-> tag-list it
                      (delve-show--add-parse it)
                      (delve-show--parse it)))
@@ -235,15 +259,15 @@ Only works on `ethiopia' and `america'."
          (list (append (list :name "do" :postprocess (lambda (zettel) (cl-sort zettel delve-postprocess-sort-pred))) constraint args))))
 
 ;;;###autoload
-(cl-defun delve-show (&optional (tag-list 'nil) (include-titles 'nil) (search-fuzzy 'nil))
-  (let* ((test-page  (delve-show--delve-get-page tag-list include-titles search-fuzzy)))
+(cl-defun delve-show (&optional (tag-list 'nil) (include-titles 'nil) (search-fuzzy 'nil) (title-fuzzy 'nil))
+  (let* ((test-page  (delve-show--delve-get-page tag-list include-titles search-fuzzy title-fuzzy)))
     (switch-to-buffer (delve-new-collection-buffer (delve-create-searches test-page)
                                                    (delve--pretty-main-buffer-header)
                                                    "test Buffer"))))
 
 ;;;###autoload
-(cl-defun delve-results (&optional (tag-list 'nil) (include-titles 'nil) (search-fuzzy 'nil))
-  (let* ((test-page  (delve-show--delve-get-page tag-list include-titles search-fuzzy)))
+(cl-defun delve-results (&optional (tag-list 'nil) (include-titles 'nil) (search-fuzzy 'nil) (title-fuzzy 'nil))
+  (let* ((test-page  (delve-show--delve-get-page tag-list include-titles search-fuzzy title-fuzzy)))
     (delve-operate-search (car (delve-create-searches test-page)))))
 
 (provide 'delve-show)
