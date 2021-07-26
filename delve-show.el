@@ -5,7 +5,6 @@
 ;; Author: Natnael Kahssay <https://github.com/natask>
 ;; Maintainer: Natnael Kahssay <thisnkk@gmail.com>
 ;; Created: June 08, 2021
-;; Modified: June 08, 2021
 ;; Version: 0.0.1
 ;; Keywords: Symbol’s value as variable is void: finder-known-keywords
 ;; Homepage: https://github.com/savnkk/delve-show
@@ -127,11 +126,11 @@ Only works on `ethiopia' and `america'."
      `((like tags:tags ,(intern (concat "$r" (number-to-string (+ (length vals) 1)))))))
     ('titles-and-tags
      (pcase delve-show-fuzzy-title
-       ('exact
+       ('fuzzy
         `((or
            (like tags:tags ,(intern (concat "$r" (number-to-string (+ (length vals) 1)))))
            (like titles:title ,(intern (concat "$r" (number-to-string (+ (length vals) 2))))))))
-       ('fuzzy
+       ('exact
      `((or
         (like tags:tags ,(intern (concat "$r" (number-to-string (+ (length vals) 1)))))
         (like titles:title ,(intern (concat "$r" (number-to-string (+ (length vals) 2)))))
