@@ -6,9 +6,9 @@
 ;; Maintainer: Natnael Kahssay <thisnkk@gmail.com>
 ;; Created: June 08, 2021
 ;; Version: 0.0.1
-;; Keywords: Symbol’s value as variable is void: finder-known-keywords
+;; Keywords: matching delve org-roam
 ;; Homepage: https://github.com/savnkk/delve-show
-;; Package-Requires: ((emacs "24.3") (delve "0.7"))
+;; Package-Requires: ((emacs "26.1") (delve "0.7") (sexp-string "0.0.1"))
 ;;
 ;; This file is not part of GNU Emacs.
 ;;
@@ -50,21 +50,107 @@ Defaults,
 :type 'symbol
 :group 'delve-show)
 
-(defcustom delve-show--parser-type 'tags-only
+(defcustom delve-show--parser-type 'tags
   "Parser type for delve-show.
 Can be
-   'tags-only
-   'titles-and-tags"
+   'tags
+   'both"
   :type 'symbol
   :group 'delve-show)
 
-(defcustom delve-postprocess-sort-pred (delve-db-zettel-sorting-pred #'time-less-p 'mtime)
-  "Function to type for delve-show.
-Can be
-   'tags-only
-   'titles-and-tags"
+(defcustom delve-show-postprocess-sort-pred (delve-db-zettel-sorting-pred #'time-less-p 'mtime)
+  "Sort function for delve."
   :type 'function
   :group 'delve-show)
+
+;; sexp
+(require 'sexp-string)
+
+;;; Vars:
+(defvar delve-show-predicates
+  '((or  :name or  :transform
+         ((`(or . ,clauses) `(or ,@(mapcar #' rec clauses))))
+         :stringify
+         ((`(or . ,clauses) (cl-reduce (lambda (acc elem)
+                                         (let ((res (rec elem)))
+                                           ;; HACK: works because plist-get grabs the first it can find.
+                                           ;; Here it grabs the most recently computed value.
+                                           ;; This means need to reverse
+                                           ;; while presevering order of subsequent Even and Odd
+                                           ;; index elements
+                                           (-concat res acc)))
+                                       clauses :initial-value accum))))
+    (not :name not :transform
+         ((`(not . ,clauses) `(not ,@(mapcar #' rec clauses)))))
+    (and :name and
+         :transform
+         ((`(and . ,clauses) `(and ,@(mapcar #' rec clauses))))
+         :stringify
+         ((`(and . ,clauses) (cl-reduce (lambda (acc elem)
+                                          (let ((res (rec elem)))
+                                            (list :title (-concat (plist-get acc :title)
+                                                                  (plist-get res :title))
+                                                  :tags (-concat (plist-get acc :tags)
+                                                                 (plist-get res :tags)))))
+                                        clauses :initial-value accum))))
+    (titles :name titles :aliases '(title)
+            :transform
+            ((`(,(or 'titles 'title) . ,rest)
+              `(and ,@(mapcar (lambda (elem)
+                                (cons 'or (mapcan (lambda (elem)
+                                                    (mapcar (lambda (elem)
+                                                        `(like titles:title ',elem))
+                                                    (delve-show--get-vals-title elem)))
+                                                  (rec elem)))) rest))))
+            :stringify
+            ((`(,(or 'titles 'title) . ,rest)
+              (plist-put accum :title (-concat (plist-get accum :title) rest)))))
+    (tags :name tags :aliases '(tag)
+          :transform
+          ((`(,(or 'tags 'tag) . ,rest)
+            `(and ,@(mapcar (lambda (elem)
+                              (cons 'or (mapcan (lambda (elem)
+                                                  (mapcar (lambda (elem)
+                                                            `(like tags:tags ',elem))
+                                                          (delve-show--get-vals-tag elem)))
+                              (rec elem)))) rest))))
+          :stringify
+          ((`(,(or 'tags 'tag) . ,rest)
+            (plist-put accum :tags (-concat (plist-get accum :tags) rest)))))
+    (both :name both
+          :transform
+          ((`(both . ,rest)
+            (rec `(or (tags ,@rest)
+                      (titles ,@rest)))))
+          :search
+          ((`(both . ,rest)
+            (list :title (plist-get (rec `(titles ,@rest) accum) :title)
+                  :tags (plist-get (rec `(tags ,@rest) accum) :tags))))
+          :stringify
+          ((`(both . ,rest)
+            (rec `(titles ,@rest) accum))))
+    (query :name query
+           :transform
+           (((pred stringp) (delve-show--variations element))
+            ((pred symbolp) (delve-show--variations (symbol-name element))))
+           :search
+           (((pred stringp) element)
+            ((pred symbolp) (symbol-name element)))
+           :stringify
+           (((pred stringp) element)
+           ((pred symbolp) (symbol-name element))))))
+
+(defvar delve-show-default-predicate-boolean 'and)
+(defvar delve-show-default-predicate 'both)
+
+;;; Code:
+(declare-function delve-show--query-string-to-sexp "ext:delve-show" (query) t)
+(declare-function delve-show--transform-query "ext:delve-show" (query) t)
+(declare-function delve-show--stringify-query "ext:delve-show" (query) t)
+(fset 'delve-show--query-string-to-sexp
+      (sexp-string--define-query-string-to-sexp-fn  "delve-show"))
+(fset 'delve-show--transform-query (sexp-string--define-transform-query-fn "delve-show" :transform))
+(fset 'delve-show--stringify-query (sexp-string--define-transform-query-fn "delve-show" :stringify))
 
 ;; -----------------------------------------------------------
 ;; * code
@@ -118,155 +204,65 @@ Only works on `ethiopia' and `america'."
                     (delve-show--country-to-people word)
                     (delve-show--present-participle word)
                     (delve-show--plural word)))
-    word))
+    (list word)))
+;; -----------------------------------------------------------
+;;;
+(defun delve-show--get-vals-tag (val)
+        (list (format (delve-show--get-format-string) val)))
 
-(defun delve-show--get-new-queries (vals)
-  (pcase delve-show--parser-type
-    ('tags-only
-     `((like tags:tags ,(intern (concat "$r" (number-to-string (+ (length vals) 1)))))))
-    ('titles-and-tags
-     (pcase delve-show-fuzzy-title
-       ('fuzzy
-        `((or
-           (like tags:tags ,(intern (concat "$r" (number-to-string (+ (length vals) 1)))))
-           (like titles:title ,(intern (concat "$r" (number-to-string (+ (length vals) 2))))))))
-       ('exact
-     `((or
-        (like tags:tags ,(intern (concat "$r" (number-to-string (+ (length vals) 1)))))
-        (like titles:title ,(intern (concat "$r" (number-to-string (+ (length vals) 2)))))
-        (like titles:title ,(intern (concat "$r" (number-to-string (+ (length vals) 3)))))
-        (like titles:title ,(intern (concat "$r" (number-to-string (+ (length vals) 4)))))
-        (like titles:title ,(intern (concat "$r" (number-to-string (+ (length vals) 5))))))))))))
-
-(defun delve-show--get-new-vals (val)
-  (pcase delve-show--parser-type
-    ('tags-only
-     (list val))
-    ('titles-and-tags
-     (pcase delve-show-fuzzy-title
-       ('fuzzy
-        (list val val))
-        ('exact
-     (list val val val val val))))))
-
-(defun delve-show--parse-helper (stuct vals)
-  (let ((valk vals) queries)
-    (pcase stuct
-      (`(or . ,args) (progn
-                       (setq queries '(or))
-                       (dolist (arg args)
-                         (let ((comp  (delve-show--parse-helper arg valk)))
-                           (setq valk (plist-get comp :vals))
-                           (setq queries (nconc (copy-list queries) (plist-get comp :queries)))
-                           ))
-                       (setq queries (list queries))
-                       `(:queries ,queries :vals ,valk)))
-      (`(and . ,args) (progn
-                        (setq queries '(and))
-                        (dolist (arg args)
-                          (let ((comp  (delve-show--parse-helper arg valk)))
-                            (setq valk (plist-get comp :vals))
-                            (setq queries (nconc (copy-list queries) (plist-get comp :queries)))
-                            ))
-                        (setq queries (list queries))
-                        `(:queries ,queries :vals ,valk)))
-      ('nil    (list :queries 'nil :vals 'nil))
-      (x      `(:queries ,(delve-show--get-new-queries vals)
-                :vals ,(nconc vals (delve-show--get-new-vals x))))
-      )))
-
-(defun delve-show--join (init args)
-  (dolist (arg args)
-    (let ((valk (delve-show--add-parse arg)))
-      (if valk
-          (nconc init `(,valk)))))
-  init)
-
-(defun delve-show--add-parse (stuct)
-  (pcase stuct
-    (`(,op . ,args) (progn
-                      (cond
-                       ((member op '(and or)) (delve-show--join `(,op) args))
-                       (t 'nil)
-                       )))
-    ('nil   'nil)
-    (x      (-as-> x it
-                   (cond
-                    ((stringp it) it)
-                    (t (symbol-name it)))
-                   (delve-show--variations it)
-                   (if (listp it)
-                       (progn
-                         (-as-> it it
-                                (mapcar 'intern it)
-                                (cons 'or it)))
-                     it)))
-    ))
-
-(defun delve-show--parse (stuct)
-  (let ((ret (delve-show--parse-helper stuct '())))
-    (plist-put ret :queries (car (plist-get ret :queries)))))
-
-(defun delve-show--get-vals (vals)
-  (cl-loop for fval in vals
-           with i = 1
-           with acc = nil
-           do
-           (pcase delve-show--parser-type
-             ('tags-only
-              ;;(setq acc (cons (format "%%%s%%" fval) acc))
-                 (setq acc (cons (format (delve-show--get-format-string) fval) acc)))
-             ('titles-and-tags
-              (pcase delve-show-fuzzy-title
+(defun delve-show--get-vals-title (val)
+        (pcase delve-show-fuzzy-title
                 ('exact
-              (setq acc (cons (pcase (% i 5)
-                               (0 (format "%% %s %%" fval))
-                               (4 (format "%% %s\"" fval))
-                               (3 (format "\"%s %%" fval))
-                               (2 (format "%s" fval))
-                               (1 (format (delve-show--get-format-string) fval))) acc)))
+                  (list
+                       (format "%% %s %%" val)
+                       (format "%% %s\"" val)
+                       (format "\"%s %%" val)
+                       (format "%s" val)))
                 ('fuzzy
-                 (setq acc (cons (pcase (% i 2)
-                                   (0 (format "%%%s%%" fval))
-                                   (1 (format (delve-show--get-format-string) fval))) acc))))
-              ))
-           (setq i (+ 1 i))
-           finally (return (reverse acc))))
+                 (list
+                      (format "%%%s%%" val)))))
 
 (defun delve-show--get-format-string ()
   "Get the format string of current tag data type."
   (condition-case err
       (cdr (assoc 'format (cdr (assoc delve-show-tag-data-type delve-show-tag-data-types))))
     (error (message "make sure format is defined in %s in delve-show-tag-data-types.\n%s" delve-show-tag-data-type err) (signal (car err) (cdr err))
-           ))
-  )
+           )))
+
+(defun delve-show--wrap-list (lt)
+  (if (listp lt)
+  (mapcar (lambda (elem)
+            (if (listp elem)
+                (delve-show--wrap-list elem)
+              (if (member elem '(or and))
+                  elem
+              (list delve-show--parser-type elem))
+              )) lt)
+   (list delve-show--parser-type lt)))
 
 ;;;###autoload
-(cl-defun delve-show--delve-get-page (&optional (tag-list 'nil) (include-titles 'nil) (search-fuzzy 'nil) (title-fuzzy 'nil))
-  (let* ((delve-show--parser-type (if include-titles 'titles-and-tags 'tags-only))
-         (delve-show-tag-data-type (if search-fuzzy 'fuzzy 'exact))
+(cl-defun delve-show--delve-get-page (tag-list &key (include-titles 'nil) (tag-fuzzy 'nil) (title-fuzzy 'nil) (sexp 'nil))
+  (when-let* ((delve-show--parser-type (if include-titles 'both 'tags))
+         (delve-show-tag-data-type (if tag-fuzzy 'fuzzy 'exact))
          (delve-show-fuzzy-title (if title-fuzzy 'fuzzy 'exact))
-         (val (-as-> tag-list it
-                     (delve-show--add-parse it)
-                     (delve-show--parse it)))
-         (query (plist-get val :queries))
-         (vals (plist-get val :vals))
-         (fvals (delve-show--get-vals vals))
-         (constraint (if query (list :constraint `[:where ,query]) 'nil))
-         (args (if vals (list :args fvals) 'nil)))
-    (print (list (append (list :name "do" :postprocess (lambda (zettel) (cl-sort zettel delve-postprocess-sort-pred))) constraint args)))
-         (list (append (list :name "do" :postprocess (lambda (zettel) (cl-sort zettel delve-postprocess-sort-pred))) constraint args))))
+         (query (-as-> tag-list it
+                     (if sexp
+                         it
+                     (delve-show--wrap-list it))
+                     (delve-show--transform-query it)))
+         (constraint (if query (list :constraint `[:where ,query]))))
+         (list (append (list :name "do" :postprocess (lambda (zettel) (cl-sort zettel delve-show-postprocess-sort-pred))) constraint))))
 
 ;;;###autoload
-(cl-defun delve-show (&optional (tag-list 'nil) (include-titles 'nil) (search-fuzzy 'nil) (title-fuzzy 'nil))
-  (let* ((test-page  (delve-show--delve-get-page tag-list include-titles search-fuzzy title-fuzzy)))
+(cl-defun delve-show (tag-list &key (include-titles 'nil) (tag-fuzzy 'nil) (title-fuzzy 'nil) (sexp 'nil))
+  (let* ((test-page  (delve-show--delve-get-page tag-list :include-titles include-titles :tag-fuzzy tag-fuzzy :title-fuzzy title-fuzzy :sexp sexp)))
     (switch-to-buffer (delve-new-collection-buffer (delve-create-searches test-page)
                                                    (delve--pretty-main-buffer-header)
                                                    "test Buffer"))))
 
 ;;;###autoload
-(cl-defun delve-results (&optional (tag-list 'nil) (include-titles 'nil) (search-fuzzy 'nil) (title-fuzzy 'nil))
-  (let* ((test-page  (delve-show--delve-get-page tag-list include-titles search-fuzzy title-fuzzy)))
+(cl-defun delve-results (tag-list &key (include-titles 'nil) (tag-fuzzy 'nil) (title-fuzzy 'nil) (sexp 'nil))
+  (let* ((test-page  (delve-show--delve-get-page tag-list :include-titles include-titles :tag-fuzzy tag-fuzzy :title-fuzzy title-fuzzy :sexp sexp)))
     (delve-operate-search (car (delve-create-searches test-page)))))
 
 (provide 'delve-show)
