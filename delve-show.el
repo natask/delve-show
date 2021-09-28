@@ -42,6 +42,7 @@ Defaults,
   - exact."
   :type 'symbol
   :group 'delve-show)
+
 (defcustom delve-show-fuzzy-title 'fuzzy
 "Default title search type.
 Defaults,
@@ -49,14 +50,6 @@ Defaults,
   - exact."
 :type 'symbol
 :group 'delve-show)
-
-(defcustom delve-show--parser-type 'tags
-  "Parser type for delve-show.
-Can be
-   'tags
-   'both"
-  :type 'symbol
-  :group 'delve-show)
 
 (defcustom delve-show-postprocess-sort-pred (delve-db-zettel-sorting-pred #'time-less-p 'mtime)
   "Sort function for delve."
@@ -141,7 +134,14 @@ Can be
            ((pred symbolp) (symbol-name element))))))
 
 (defvar delve-show-default-predicate-boolean 'and)
-(defvar delve-show-default-predicate 'both)
+
+(defcustom delve-show-default-predicate 'tag
+  "Parser type for delve-show.
+Can be
+   'tags
+   'both"
+  :type 'symbol
+  :group 'delve-show)
 
 ;;; Code:
 (declare-function delve-show--query-string-to-sexp "ext:delve-show" (query) t)
@@ -236,13 +236,13 @@ Only works on `ethiopia' and `america'."
                 (delve-show--wrap-list elem)
               (if (member elem '(or and))
                   elem
-              (list delve-show--parser-type elem))
+              (list delve-show-default-predicate elem))
               )) lt)
-   (list delve-show--parser-type lt)))
+   (list delve-show-default-predicate lt)))
 
 ;;;###autoload
 (cl-defun delve-show--delve-get-page (tag-list &key (include-titles 'nil) (tag-fuzzy 'nil) (title-fuzzy 'nil) (sexp 'nil))
-  (when-let* ((delve-show--parser-type (if include-titles 'both 'tags))
+  (when-let* ((delve-show-default-predicate (if include-titles 'both 'tags))
          (delve-show-tag-data-type (if tag-fuzzy 'fuzzy 'exact))
          (delve-show-fuzzy-title (if title-fuzzy 'fuzzy 'exact))
          (query (-as-> tag-list it
