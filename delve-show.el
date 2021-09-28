@@ -28,12 +28,12 @@
 ;; -----------------------------------------------------------
 ;; * variables
 (defcustom delve-show-tag-data-types '((fuzzy . ((format . "%%%s%%")
-                                             ))
+                                                 ))
                                        (exact . ((format . "%%\"%s\"%%")
-                                             )))
-                                     "Types on how to treat tag search. fuzzy or exact or any other custom type."
-:type '(alist (group (alist (group sexp))))
-:group 'delve-show)
+                                                 )))
+  "Types on how to treat tag search. fuzzy or exact or any other custom type."
+  :type '(alist (group (alist (group sexp))))
+  :group 'delve-show)
 
 (defcustom delve-show-tag-data-type 'fuzzy
   "Default tag search type.
@@ -42,14 +42,13 @@ Defaults,
   - exact."
   :type 'symbol
   :group 'delve-show)
-
 (defcustom delve-show-fuzzy-title 'fuzzy
-"Default title search type.
+  "Default title search type.
 Defaults,
   - fuzzy.
   - exact."
-:type 'symbol
-:group 'delve-show)
+  :type 'symbol
+  :group 'delve-show)
 
 (defcustom delve-show-postprocess-sort-pred (delve-db-zettel-sorting-pred #'time-less-p 'mtime)
   "Sort function for delve."
@@ -92,8 +91,8 @@ Defaults,
               `(and ,@(mapcar (lambda (elem)
                                 (cons 'or (mapcan (lambda (elem)
                                                     (mapcar (lambda (elem)
-                                                        `(like titles:title ',elem))
-                                                    (delve-show--get-vals-title elem)))
+                                                              `(like titles:title ',elem))
+                                                            (delve-show--get-vals-title elem)))
                                                   (rec elem)))) rest))))
             :stringify
             ((`(,(or 'titles 'title) . ,rest)
@@ -106,7 +105,7 @@ Defaults,
                                                   (mapcar (lambda (elem)
                                                             `(like tags:tags ',elem))
                                                           (delve-show--get-vals-tag elem)))
-                              (rec elem)))) rest))))
+                                                (rec elem)))) rest))))
           :stringify
           ((`(,(or 'tags 'tag) . ,rest)
             (plist-put accum :tags (-concat (plist-get accum :tags) rest)))))
@@ -125,21 +124,21 @@ Defaults,
     (query :name query
            :transform
            (((pred stringp) (delve-show--variations element))
+            ('nil 'nil)
             ((pred symbolp) (delve-show--variations (symbol-name element))))
            :search
            (((pred stringp) element)
             ((pred symbolp) (symbol-name element)))
            :stringify
            (((pred stringp) element)
-           ((pred symbolp) (symbol-name element))))))
+            ((pred symbolp) (symbol-name element))))))
 
 (defvar delve-show-default-predicate-boolean 'and)
-
 (defcustom delve-show-default-predicate 'tag
   "Parser type for delve-show.
 Can be
-   'tags
-   'both"
+  'tags
+  'both"
   :type 'symbol
   :group 'delve-show)
 
@@ -197,7 +196,7 @@ Only works on `ethiopia' and `america'."
    (t nil)))
 
 (defun delve-show--variations (word)
-"Generate variations on WORD."
+  "Generate variations on WORD."
   (if (> (length word) 2)
       (remove 'nil
               (list word
@@ -208,19 +207,19 @@ Only works on `ethiopia' and `america'."
 ;; -----------------------------------------------------------
 ;;;
 (defun delve-show--get-vals-tag (val)
-        (list (format (delve-show--get-format-string) val)))
+  (list (format (delve-show--get-format-string) val)))
 
 (defun delve-show--get-vals-title (val)
-        (pcase delve-show-fuzzy-title
-                ('exact
-                  (list
-                       (format "%% %s %%" val)
-                       (format "%% %s\"" val)
-                       (format "\"%s %%" val)
-                       (format "%s" val)))
-                ('fuzzy
-                 (list
-                      (format "%%%s%%" val)))))
+  (pcase delve-show-fuzzy-title
+    ('exact
+     (list
+      (format "%% %s %%" val)
+      (format "%% %s\"" val)
+      (format "\"%s %%" val)
+      (format "%s" val)))
+    ('fuzzy
+     (list
+      (format "%%%s%%" val)))))
 
 (defun delve-show--get-format-string ()
   "Get the format string of current tag data type."
@@ -231,37 +230,38 @@ Only works on `ethiopia' and `america'."
 
 (defun delve-show--wrap-list (lt)
   (if (listp lt)
-  (mapcar (lambda (elem)
-            (if (listp elem)
-                (delve-show--wrap-list elem)
-              (if (member elem '(or and))
-                  elem
-              (list delve-show-default-predicate elem))
-              )) lt)
-   (list delve-show-default-predicate lt)))
+      (mapcar (lambda (elem)
+                (if (listp elem)
+                    (delve-show--wrap-list elem)
+                  (if (member elem '(or and))
+                      elem
+                    (list delve-show-default-predicate elem))
+                  )) lt)
+    (list delve-show-default-predicate lt)))
 
 ;;;###autoload
-(cl-defun delve-show--delve-get-page (tag-list &key (include-titles 'nil) (tag-fuzzy 'nil) (title-fuzzy 'nil) (sexp 'nil))
-  (when-let* ((delve-show-default-predicate (if include-titles 'both 'tags))
+(cl-defun delve-show--delve-get-page (&optional (tag-list 'nil) &key (include-titles 'nil) (tag-fuzzy 'nil) (title-fuzzy 'nil) (sexp 'nil))
+  (let* ((delve-show-default-predicate (if include-titles 'both 'tags))
          (delve-show-tag-data-type (if tag-fuzzy 'fuzzy 'exact))
          (delve-show-fuzzy-title (if title-fuzzy 'fuzzy 'exact))
          (query (-as-> tag-list it
-                     (if sexp
-                         it
-                     (delve-show--wrap-list it))
-                     (delve-show--transform-query it)))
+                       (if sexp
+                           it
+                         (delve-show--wrap-list it))
+                       (delve-show--transform-query it)))
          (constraint (if query (list :constraint `[:where ,query]))))
-         (list (append (list :name "do" :postprocess (lambda (zettel) (cl-sort zettel delve-show-postprocess-sort-pred))) constraint))))
+    (list (append (list :name "do" :postprocess (lambda (zettel) (cl-sort zettel delve-show-postprocess-sort-pred))) constraint))))
 
 ;;;###autoload
-(cl-defun delve-show (tag-list &key (include-titles 'nil) (tag-fuzzy 'nil) (title-fuzzy 'nil) (sexp 'nil))
+;;;
+(cl-defun delve-show (&optional (tag-list 'nil) &key (include-titles 'nil) (tag-fuzzy 'nil) (title-fuzzy 'nil) (sexp 'nil))
   (let* ((test-page  (delve-show--delve-get-page tag-list :include-titles include-titles :tag-fuzzy tag-fuzzy :title-fuzzy title-fuzzy :sexp sexp)))
     (switch-to-buffer (delve-new-collection-buffer (delve-create-searches test-page)
                                                    (delve--pretty-main-buffer-header)
                                                    "test Buffer"))))
 
 ;;;###autoload
-(cl-defun delve-results (tag-list &key (include-titles 'nil) (tag-fuzzy 'nil) (title-fuzzy 'nil) (sexp 'nil))
+(cl-defun delve-results (&optional (tag-list 'nil) &key (include-titles 'nil) (tag-fuzzy 'nil) (title-fuzzy 'nil) (sexp 'nil))
   (let* ((test-page  (delve-show--delve-get-page tag-list :include-titles include-titles :tag-fuzzy tag-fuzzy :title-fuzzy title-fuzzy :sexp sexp)))
     (delve-operate-search (car (delve-create-searches test-page)))))
 
