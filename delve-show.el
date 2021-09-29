@@ -253,8 +253,8 @@ Only works on `ethiopia' and `america'."
     (list (append (list :name "do" :postprocess (lambda (zettel) (cl-sort zettel delve-show-postprocess-sort-pred))) constraint))))
 
 ;;;###autoload
-;;;
 (cl-defun delve-show (&optional (tag-list 'nil) &key (include-titles 'nil) (tag-fuzzy 'nil) (title-fuzzy 'nil) (sexp 'nil))
+  (interactive)
   (let* ((test-page  (delve-show--delve-get-page tag-list :include-titles include-titles :tag-fuzzy tag-fuzzy :title-fuzzy title-fuzzy :sexp sexp)))
     (switch-to-buffer (delve-new-collection-buffer (delve-create-searches test-page)
                                                    (delve--pretty-main-buffer-header)
