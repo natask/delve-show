@@ -42,12 +42,18 @@ Defaults,
   - exact."
   :type 'symbol
   :group 'delve-show)
+
 (defcustom delve-show-fuzzy-title 'fuzzy
   "Default title search type.
 Defaults,
   - fuzzy.
   - exact."
   :type 'symbol
+  :group 'delve-show)
+
+(defcustom delve-show-max-results 'nil
+  "Max number of results in delve buffer."
+  :type 'number
   :group 'delve-show)
 
 (defcustom delve-show-postprocess-sort-pred (delve-db-zettel-sorting-pred #'time-less-p 'mtime)
@@ -249,7 +255,8 @@ Only works on `ethiopia' and `america'."
                            it
                          (delve-show--wrap-list it))
                        (delve-show--transform-query it)))
-         (constraint (if query (list :constraint `[:where ,query]))))
+         (constraint (list :constraint (vconcat (when query `[:where ,query])
+                                                (when delve-show-max-results `[:limit ,delve-show-max-results])))))
     (list (append (list :name "do" :postprocess (lambda (zettel) (cl-sort zettel delve-show-postprocess-sort-pred))) constraint))))
 
 ;;;###autoload
