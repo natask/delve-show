@@ -5,10 +5,10 @@
 ;; Author: Natnael Kahssay <https://github.com/natask>
 ;; Maintainer: Natnael Kahssay <thisnkk@gmail.com>
 ;; Created: June 08, 2021
-;; Version: 0.0.1
+;; Version: 0.0.2
 ;; Keywords: matching delve org-roam
 ;; Homepage: https://github.com/savnkk/delve-show
-;; Package-Requires: ((emacs "26.1") (delve "0.7") (sexp-string "0.0.1"))
+;; Package-Requires: ((emacs "26.1") (delve "0.9.3") (sexp-string "0.0.1"))
 ;;
 ;; This file is not part of GNU Emacs.
 ;;
@@ -56,10 +56,10 @@ Defaults,
   :type 'number
   :group 'delve-show)
 
-(defcustom delve-show-postprocess-sort-pred (delve-db-zettel-sorting-pred #'time-less-p 'mtime)
-  "Sort function for delve."
-  :type 'function
-  :group 'delve-show)
+;; (defcustom delve-show-postprocess-sort-pred (delve-db-zettel-sorting-pred #'time-less-p 'mtime)
+;;   "Sort function for delve."
+;;   :type 'function
+;;   :group 'delve-show)
 
 ;; sexp
 (require 'sexp-string)
@@ -91,27 +91,41 @@ Defaults,
                                                   :tags (-concat (plist-get acc :tags)
                                                                  (plist-get res :tags)))))
                                         clauses :initial-value accum))))
-    (titles :name titles :aliases '(title)
+    (titles :name titles :aliases '(title aliases alias)
             :transform
-            ((`(,(or 'titles 'title) . ,rest)
-              `(and ,@(mapcar (lambda (elem)
-                                (cons 'or (mapcan (lambda (elem)
-                                                    (mapcar (lambda (elem)
-                                                              `(like titles:title ',elem))
-                                                            (delve-show--get-vals-title elem)))
-                                                  (rec elem)))) rest))))
+            ((`(,(or 'titles 'title 'aliases 'alias) . ,rest)
+              `(or
+                ,(-tree-map (lambda (elem) (if (member elem '(or and)) elem `(or
+                                                                              ,@(mapcan (lambda (elem)
+                                                                                          (mapcar (lambda (elem)
+                                                                                                    `(like nodes:title ,elem))
+                                                                                                  (delve-show--get-vals-title elem)))
+                                                                                        (rec elem))))) (cons 'and rest))
+                ,(-tree-map (lambda (elem) (if (member elem '(or and)) elem `(or
+                                                                              ,@(mapcan (lambda (elem)
+                                                                                          (mapcar (lambda (elem)
+                                                                                                    `(like aliases:alias ,elem))
+                                                                                                  (delve-show--get-vals-title elem)))
+                                                                                        (rec elem))))) (cons 'and rest)))))
             :stringify
             ((`(,(or 'titles 'title) . ,rest)
               (plist-put accum :title (-concat (plist-get accum :title) rest)))))
     (tags :name tags :aliases '(tag)
           :transform
           ((`(,(or 'tags 'tag) . ,rest)
-            `(and ,@(mapcar (lambda (elem)
-                              (cons 'or (mapcan (lambda (elem)
-                                                  (mapcar (lambda (elem)
-                                                            `(like tags:tags ',elem))
-                                                          (delve-show--get-vals-tag elem)))
-                                                (rec elem)))) rest))))
+            `(or
+              ,(-tree-map (lambda (elem) (if (member elem '(or and)) elem `(or
+                                                                            ,@(mapcan (lambda (elem)
+                                                                                        (mapcar (lambda (elem)
+                                                                                                  `(like tags:tag ',elem))
+                                                                                                (delve-show--get-vals-tag elem)))
+                                                                                      (rec elem))))) (cons 'and rest))
+              ,(-tree-map (lambda (elem) (if (member elem '(or and)) elem `(or
+                                                                            ,@(mapcan (lambda (elem)
+                                                                                        (mapcar (lambda (elem)
+                                                                                                  `(like nodes:olp '(,elem)))
+                                                                                                (delve-show--get-vals-tag elem)))
+                                                                                      (rec elem))))) (cons 'and rest)))))
           :stringify
           ((`(,(or 'tags 'tag) . ,rest)
             (plist-put accum :tags (-concat (plist-get accum :tags) rest)))))
@@ -245,8 +259,50 @@ Only works on `ethiopia' and `america'."
                   )) lt)
     (list delve-show-default-predicate lt)))
 
+(cl-defun delve-show--query-nodes (&optional conditions)
+  (let* ((where-clause     (if conditions
+                              (car (emacsql-prepare `[:where ,conditions]))))
+        (limit-clause     (if delve-show-max-results
+                              (format "limit %d" delve-show-max-results)))
+        (query (concat
+  "SELECT id, file, filetitle, \"level\", todo, pos, priority,
+           scheduled, deadline , title, properties, olp, atime,
+           mtime, '(' || group_concat(tags, ' ') || ')' as tags,
+           aliases, refs FROM
+           -- outer from clause
+           (
+           SELECT  id,  file, filetitle, \"level\", todo,  pos, priority,  scheduled, deadline ,
+             title, properties, olp, atime,  mtime, tags,
+             '(' || group_concat(aliases, ' ') || ')' as aliases,
+             refs
+           FROM
+           -- inner from clause
+             (
+             SELECT  nodes.id as id,  nodes.file as file,  nodes.\"level\" as \"level\",
+               nodes.todo as todo,   nodes.pos as pos,  nodes.priority as priority,
+               nodes.scheduled as scheduled,  nodes.deadline as deadline,  nodes.title as title,
+               nodes.properties as properties,  nodes.olp as olp,  files.atime as atime,
+               files.title as filetitle,
+               files.mtime as mtime,  tags.tag as tags,    aliases.alias as aliases,
+               '(' || group_concat(RTRIM (refs.\"type\", '\"') || ':' || LTRIM(refs.ref, '\"'), ' ') || ')' as refs
+             FROM nodes
+             LEFT JOIN files ON files.file = nodes.file
+             LEFT JOIN tags ON tags.node_id = nodes.id
+             LEFT JOIN aliases ON aliases.node_id = nodes.id
+             LEFT JOIN refs ON refs.node_id = nodes.id
+    "
+                       where-clause
+                       "
+  GROUP BY nodes.id, tags.tag, aliases.alias
+    "
+                       limit-clause
+                       ")
+  GROUP BY id, tags )
+GROUP BY id")))
+    (delve-query-do-super-query query)))
+
 ;;;###autoload
-(cl-defun delve-show--delve-get-page (&optional (tag-list 'nil) &key (include-titles 'nil) (tag-fuzzy 'nil) (title-fuzzy 'nil) (sexp 'nil))
+(cl-defun delve-show--delve-get-query (&optional (tag-list 'nil) &key (include-titles 'nil) (tag-fuzzy 'nil) (title-fuzzy 'nil) (sexp 'nil))
   (let* ((delve-show-default-predicate (if include-titles 'both 'tags))
          (delve-show-tag-data-type (if tag-fuzzy 'fuzzy 'exact))
          (delve-show-fuzzy-title (if title-fuzzy 'fuzzy 'exact))
@@ -254,23 +310,23 @@ Only works on `ethiopia' and `america'."
                        (if sexp
                            it
                          (delve-show--wrap-list it))
-                       (delve-show--transform-query it)))
-         (constraint (list :constraint (vconcat (when query `[:where ,query])
-                                                (when delve-show-max-results `[:limit ,delve-show-max-results])))))
-    (list (append (list :name "do" :postprocess (lambda (zettel) (cl-sort zettel delve-show-postprocess-sort-pred))) constraint))))
+                       (delve-show--transform-query it))))
+    (delve--query-create
+     :info (format "Query for nodes matching %s"
+                   (prin1-to-string (or tag-list 'All)))
+     :fn (lambda ()
+           (delve-show--query-nodes query)))))
 
 ;;;###autoload
 (cl-defun delve-show (&optional (tag-list 'nil) &key (include-titles 'nil) (tag-fuzzy 'nil) (title-fuzzy 'nil) (sexp 'nil))
   (interactive)
-  (let* ((test-page  (delve-show--delve-get-page tag-list :include-titles include-titles :tag-fuzzy tag-fuzzy :title-fuzzy title-fuzzy :sexp sexp)))
-    (switch-to-buffer (delve-new-collection-buffer (delve-create-searches test-page)
-                                                   (delve--pretty-main-buffer-header)
-                                                   "test Buffer"))))
+  (let* ((query (delve-show--delve-get-query tag-list :include-titles include-titles :tag-fuzzy tag-fuzzy :title-fuzzy title-fuzzy :sexp sexp)))
+    (switch-to-buffer (delve--new-buffer "Result Buffer" (list query)))))
 
 ;;;###autoload
 (cl-defun delve-results (&optional (tag-list 'nil) &key (include-titles 'nil) (tag-fuzzy 'nil) (title-fuzzy 'nil) (sexp 'nil))
-  (let* ((test-page  (delve-show--delve-get-page tag-list :include-titles include-titles :tag-fuzzy tag-fuzzy :title-fuzzy title-fuzzy :sexp sexp)))
-    (delve-operate-search (car (delve-create-searches test-page)))))
+  (let* ((query (delve-show--delve-get-query tag-list :include-titles include-titles :tag-fuzzy tag-fuzzy :title-fuzzy title-fuzzy :sexp sexp)))
+    (-map #'delve--zettel-create (funcall (delve--query-fn query)))))
 
 (provide 'delve-show)
 ;;; delve-show.el ends here
