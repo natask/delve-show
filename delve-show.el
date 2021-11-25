@@ -24,31 +24,28 @@
 (require 'cl-lib)
 (require 'delve)
 (declare-function copy-list "cl-lib")
-
 ;; -----------------------------------------------------------
 ;; * variables
-(defcustom delve-show-tag-data-types '((fuzzy . ((format . "%%%s%%")
-                                                 ))
-                                       (exact . ((format . "%%\"%s\"%%")
-                                                 )))
-  "Types on how to treat tag search. fuzzy or exact or any other custom type."
-  :type '(alist (group (alist (group sexp))))
+(defcustom delve-show-data-types '(:title (:fuzzy (:formats ("%%%s%%"))
+                                           :exact (:formats ("%% %s %%"
+                                                             "%% %s\""
+                                                             "\"%s %%"
+                                                             "%s"))
+                                           :solo  (:formats ("%s")))
+                                   :tags  (:fuzzy (:formats ("%%%s%%"))
+                                           :exact (:formats ("%%\"%s\"%%"))
+                                           :solo  (:formats ("%s"))))
+  "Types on how to treat tag search. fuzzy or exact or solo or any other custom type."
+  :type '(plist :key-type (symbol :tag "For which") :value-type (plist :key-type (symbol :tag "type") :value-type (plist :key-type (symbol :tag "keys") (group :tag "data"))))
   :group 'delve-show)
 
-(defcustom delve-show-tag-data-type 'fuzzy
-  "Default tag search type.
+(defcustom delve-show-data-type '(:title :fuzzy
+                                  :tags :fuzzy)
+  "Default search type.
 Defaults,
   - fuzzy.
   - exact."
-  :type 'symbol
-  :group 'delve-show)
-
-(defcustom delve-show-fuzzy-title 'fuzzy
-  "Default title search type.
-Defaults,
-  - fuzzy.
-  - exact."
-  :type 'symbol
+  :type '(plist :key-type (symbol :tag "For which") :value-type (symbol :tag "type"))
   :group 'delve-show)
 
 (defcustom delve-show-max-results 'nil
@@ -65,6 +62,7 @@ Defaults,
 (require 'sexp-string)
 
 ;;; Vars:
+
 (defvar delve-show-predicates
   '((or  :name or  :transform
          ((`(or . ,clauses) `(or ,@(mapcar #' rec clauses))))
@@ -95,18 +93,24 @@ Defaults,
             :transform
             ((`(,(or 'titles 'title 'aliases 'alias) . ,rest)
               `(or
-                ,(-tree-map (lambda (elem) (if (member elem '(or and)) elem `(or
-                                                                              ,@(mapcan (lambda (elem)
-                                                                                          (mapcar (lambda (elem)
-                                                                                                    `(like nodes:title ,elem))
-                                                                                                  (delve-show--get-vals-title elem)))
-                                                                                        (rec elem))))) (cons 'and rest))
-                ,(-tree-map (lambda (elem) (if (member elem '(or and)) elem `(or
-                                                                              ,@(mapcan (lambda (elem)
-                                                                                          (mapcar (lambda (elem)
-                                                                                                    `(like aliases:alias ,elem))
-                                                                                                  (delve-show--get-vals-title elem)))
-                                                                                        (rec elem))))) (cons 'and rest)))))
+                ,(-tree-map
+                  (lambda (elem)
+                    (if (member elem '(or and))
+                        elem `(or
+                               ,@(mapcan (lambda (elem)
+                                           (mapcar (lambda (elem)
+                                                     `(like title ,elem))
+                                                   (delve-show--format-vals :title elem)))
+                                         (rec elem))))) (cons 'and rest))
+                ,(-tree-map
+                  (lambda (elem)
+                    (if (member elem '(or and))
+                        elem `(or
+                               ,@(mapcan (lambda (elem)
+                                           (mapcar (lambda (elem)
+                                                     `(like aliases ',elem))
+                                                   (delve-show--format-vals :title elem)))
+                                         (rec elem))))) (cons 'and rest)))))
             :stringify
             ((`(,(or 'titles 'title) . ,rest)
               (plist-put accum :title (-concat (plist-get accum :title) rest)))))
@@ -114,18 +118,24 @@ Defaults,
           :transform
           ((`(,(or 'tags 'tag) . ,rest)
             `(or
-              ,(-tree-map (lambda (elem) (if (member elem '(or and)) elem `(or
-                                                                            ,@(mapcan (lambda (elem)
-                                                                                        (mapcar (lambda (elem)
-                                                                                                  `(like tags:tag ',elem))
-                                                                                                (delve-show--get-vals-tag elem)))
-                                                                                      (rec elem))))) (cons 'and rest))
-              ,(-tree-map (lambda (elem) (if (member elem '(or and)) elem `(or
-                                                                            ,@(mapcan (lambda (elem)
-                                                                                        (mapcar (lambda (elem)
-                                                                                                  `(like nodes:olp '(,elem)))
-                                                                                                (delve-show--get-vals-tag elem)))
-                                                                                      (rec elem))))) (cons 'and rest)))))
+              ,(-tree-map
+                (lambda (elem)
+                  (if (member elem '(or and))
+                      elem `(or
+                             ,@(mapcan (lambda (elem)
+                                         (mapcar (lambda (elem)
+                                                   `(like tags ',elem))
+                                                 (delve-show--format-vals :tags elem)))
+                                       (rec elem))))) (cons 'and rest))
+              ,(-tree-map
+                (lambda (elem)
+                  (if (member elem '(or and))
+                      elem `(or
+                             ,@(mapcan (lambda (elem)
+                                         (mapcar (lambda (elem)
+                                                   `(like olp ',elem))
+                                                 (delve-show--format-vals :tags elem)))
+                                       (rec elem))))) (cons 'and rest)))))
           :stringify
           ((`(,(or 'tags 'tag) . ,rest)
             (plist-put accum :tags (-concat (plist-get accum :tags) rest)))))
@@ -225,87 +235,96 @@ Only works on `ethiopia' and `america'."
                     (delve-show--plural word)))
     (list word)))
 ;; -----------------------------------------------------------
-;;;
-(defun delve-show--get-vals-tag (val)
-  (list (format (delve-show--get-format-string) val)))
 
-(defun delve-show--get-vals-title (val)
-  (pcase delve-show-fuzzy-title
-    ('exact
-     (list
-      (format "%% %s %%" val)
-      (format "%% %s\"" val)
-      (format "\"%s %%" val)
-      (format "%s" val)))
-    ('fuzzy
-     (list
-      (format "%%%s%%" val)))))
-
-(defun delve-show--get-format-string ()
-  "Get the format string of current tag data type."
+(defun delve-show--format-vals (type val)
+  "Format expand VAL as a TYPE."
+  (mapcar
+   (lambda (ft)
+    (format ft val))
   (condition-case err
-      (cdr (assoc 'format (cdr (assoc delve-show-tag-data-type delve-show-tag-data-types))))
-    (error (message "make sure format is defined in %s in delve-show-tag-data-types.\n%s" delve-show-tag-data-type err) (signal (car err) (cdr err))
-           )))
+      (--> (plist-get delve-show-data-type type)
+           (plist-get (plist-get delve-show-data-types type) it)
+           (plist-get it :formats))
+    (error (message "make sure format is defined in %s in delve-show-data-types.\n%s" delve-show-data-type err) (signal (car err) (cdr err))))))
 
 (defun delve-show--wrap-list (lt)
+  "Wrap list LT to match output of `delve-show--string-to-sexp'."
   (if (listp lt)
       (mapcar (lambda (elem)
                 (if (listp elem)
                     (delve-show--wrap-list elem)
                   (if (member elem '(or and))
                       elem
-                    (list delve-show-default-predicate elem))
-                  )) lt)
+                    (list delve-show-default-predicate elem)))) lt)
     (list delve-show-default-predicate lt)))
 
-(cl-defun delve-show--query-nodes (&optional conditions)
-  (let* ((where-clause     (if conditions
-                              (car (emacsql-prepare `[:where ,conditions]))))
-        (limit-clause     (if delve-show-max-results
-                              (format "limit %d" delve-show-max-results)))
-        (query (concat
-  "SELECT id, file, filetitle, \"level\", todo, pos, priority,
-           scheduled, deadline , title, properties, olp, atime,
-           mtime, '(' || group_concat(tags, ' ') || ')' as tags,
-           aliases, refs FROM
-           -- outer from clause
-           (
-           SELECT  id,  file, filetitle, \"level\", todo,  pos, priority,  scheduled, deadline ,
-             title, properties, olp, atime,  mtime, tags,
-             '(' || group_concat(aliases, ' ') || ')' as aliases,
-             refs
-           FROM
-           -- inner from clause
+(defun delve-show--join-clauses (&rest clauses)
+  "Join sql CLAUSES appropriately. Taken from `org-roam-search--join-clauses'."
+  (cl-reduce
+   (lambda (joined-clauses clause)
+     (if (and clause (not (string-empty-p clause)))
+         (if (and joined-clauses (not (string-empty-p joined-clauses)))
+             (string-join
+              (list "(" joined-clauses ")"
+                    "AND"
+                    "(" clause ")")
+              " ")
+           clause)
+       joined-clauses))
+   clauses
+   :initial-value nil))
+
+(cl-defun delve-show--query-nodes (&key conditions filter-clause sort-clause limit)
+  "Create LIMIT or `delve-show-max-results' `delve-zettel' nodes stored in the database matching CONDITIONS and FILTER-CLAUSE sorted by SORT-CLAUSE."
+  (let* ((conditions-clause (if conditions
+                                (car (emacsql-prepare `[,conditions]))))
+         (constraint-clause (delve-show--join-clauses conditions-clause filter-clause))
+         (where-clause (if constraint-clause
+                           (concat "WHERE " constraint-clause)))
+         (order-by-clause (pcase sort-clause  ;;[(desc love) (asc this)]]
+                            ((pred vectorp)
+                             (car (emacsql-prepare `[:order-by ,sort-clause])))
+                            ((pred stringp)
+                             (concat "ORDER BY " sort-clause))
+                            (_ sort-clause)))
+         (limit-clause (if (or limit delve-show-max-results)
+                           (format "limit %d" (or limit delve-show-max-results))))
+         (query (string-join
+                 (list
+                  "SELECT id, file, filetitle, level, todo, pos, priority,
+           scheduled, deadline, title, properties, olp, atime,
+           mtime, tags, aliases, refs FROM
+           -- from clause
              (
-             SELECT  nodes.id as id,  nodes.file as file,  nodes.\"level\" as \"level\",
+             SELECT  nodes.id as id,  nodes.file as file,  nodes.level as level,
                nodes.todo as todo,   nodes.pos as pos,  nodes.priority as priority,
                nodes.scheduled as scheduled,  nodes.deadline as deadline,  nodes.title as title,
                nodes.properties as properties,  nodes.olp as olp,  files.atime as atime,
                files.title as filetitle,
-               files.mtime as mtime,  tags.tag as tags,    aliases.alias as aliases,
+               files.mtime as mtime,  '(' || group_concat(tags.tag, ' ') || ')' as tags, '(' || group_concat(aliases.alias, ' ') || ')' as aliases,
                '(' || group_concat(RTRIM (refs.\"type\", '\"') || ':' || LTRIM(refs.ref, '\"'), ' ') || ')' as refs
              FROM nodes
              LEFT JOIN files ON files.file = nodes.file
              LEFT JOIN tags ON tags.node_id = nodes.id
              LEFT JOIN aliases ON aliases.node_id = nodes.id
              LEFT JOIN refs ON refs.node_id = nodes.id
-    "
-                       where-clause
-                       "
-  GROUP BY nodes.id, tags.tag, aliases.alias
-    "
-                       limit-clause
-                       ")
-  GROUP BY id, tags )
-GROUP BY id")))
+             GROUP BY nodes.id)
+             -- end from clause"
+                  where-clause
+                  order-by-clause
+                  limit-clause) "\n")))
     (delve-query-do-super-query query)))
 
 ;;;###autoload
-(cl-defun delve-show--delve-get-query (&optional (tag-list 'nil) &key (include-titles 'nil) (tag-fuzzy 'nil) (title-fuzzy 'nil) (sexp 'nil))
+(cl-defun delve-show-create-query (&optional (tag-list 'nil) &key (include-titles 'nil) (tag-fuzzy 'nil) (title-fuzzy 'nil) (sexp 'nil) filter-clause sort-clause limit)
+  "Create delve query based on TAG-LIST.
+If INCLUDE-TITLES, search for titles as well.
+If TAG-FUZZY, search tags fuzzyly.
+If TITLE-FUZZY, search titles fuzzyly.
+If SEXP, treat argument as output of `delve-show--string-to-sexp'.
+FILTER-CLAUSE, SORT-CLAUSE, and LIMIT are arguments to `delve-show--query-nodes."
   (let* ((delve-show-default-predicate (if include-titles 'both 'tags))
-         (delve-show-tag-data-type (if tag-fuzzy 'fuzzy 'exact))
-         (delve-show-fuzzy-title (if title-fuzzy 'fuzzy 'exact))
+         (delve-show-data-type (list :tags (if tag-fuzzy :fuzzy :exact) :title (if title-fuzzy :fuzzy :exact)))
          (query (-as-> tag-list it
                        (if sexp
                            it
@@ -315,17 +334,29 @@ GROUP BY id")))
      :info (format "Query for nodes matching %s"
                    (prin1-to-string (or tag-list 'All)))
      :fn (lambda ()
-           (delve-show--query-nodes query)))))
+           (delve-show--query-nodes :conditions query :filter-clause filter-clause :sort-clause sort-clause :limit limit)))))
 
 ;;;###autoload
-(cl-defun delve-show (&optional (tag-list 'nil) &key (include-titles 'nil) (tag-fuzzy 'nil) (title-fuzzy 'nil) (sexp 'nil))
+(cl-defun delve-show (&optional (tag-list 'nil) &key (include-titles 'nil) (tag-fuzzy 'nil) (title-fuzzy 'nil) (sexp 'nil) filter-clause sort-clause limit)
+  "Open delve buffer based on TAG-LIST.
+If INCLUDE-TITLES, search for titles as well.
+If TAG-FUZZY, search tags fuzzyly.
+If TITLE-FUZZY, search titles fuzzyly.
+If SEXP, treat argument as output of `delve-show--string-to-sexp'.
+FILTER-CLAUSE, SORT-CLAUSE, and LIMIT are arguments to `delve-show--query-nodes."
   (interactive)
-  (let* ((query (delve-show--delve-get-query tag-list :include-titles include-titles :tag-fuzzy tag-fuzzy :title-fuzzy title-fuzzy :sexp sexp)))
+  (let* ((query (delve-show-create-query tag-list :include-titles include-titles :tag-fuzzy tag-fuzzy :title-fuzzy title-fuzzy :sexp sexp :filter-clause filter-clause :sort-clause sort-clause :limit limit)))
     (switch-to-buffer (delve--new-buffer "Result Buffer" (list query)))))
 
 ;;;###autoload
-(cl-defun delve-results (&optional (tag-list 'nil) &key (include-titles 'nil) (tag-fuzzy 'nil) (title-fuzzy 'nil) (sexp 'nil))
-  (let* ((query (delve-show--delve-get-query tag-list :include-titles include-titles :tag-fuzzy tag-fuzzy :title-fuzzy title-fuzzy :sexp sexp)))
+(cl-defun delve-show-results (&optional (tag-list 'nil) &key (include-titles 'nil) (tag-fuzzy 'nil) (title-fuzzy 'nil) (sexp 'nil) filter-clause sort-clause limit)
+  "Return query results based on TAG-LIST.
+If INCLUDE-TITLES, search for titles as well.
+If TAG-FUZZY, search tags fuzzyly.
+If TITLE-FUZZY, search titles fuzzyly.
+If SEXP, treat argument as output of `delve-show--string-to-sexp'.
+FILTER-CLAUSE, SORT-CLAUSE, and LIMIT are arguments to `delve-show--query-nodes."
+  (let* ((query (delve-show-create-query tag-list :include-titles include-titles :tag-fuzzy tag-fuzzy :title-fuzzy title-fuzzy :sexp sexp :filter-clause filter-clause :sort-clause sort-clause :limit limit)))
     (-map #'delve--zettel-create (funcall (delve--query-fn query)))))
 
 (provide 'delve-show)
