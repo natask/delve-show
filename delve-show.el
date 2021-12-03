@@ -274,30 +274,7 @@ Only works on `ethiopia' and `america'."
                             (_ sort-clause)))
          (limit-clause (if (or limit delve-show-max-results)
                            (format "limit %d" (or limit delve-show-max-results))))
-         (query (string-join
-                 (list
-                  "SELECT id, file, filetitle, level, todo, pos, priority,
-           scheduled, deadline, title, properties, olp, atime,
-           mtime, tags, aliases, refs FROM
-           -- from clause
-             (
-             SELECT  nodes.id as id,  nodes.file as file,  nodes.level as level,
-               nodes.todo as todo,   nodes.pos as pos,  nodes.priority as priority,
-               nodes.scheduled as scheduled,  nodes.deadline as deadline,  nodes.title as title,
-               nodes.properties as properties,  nodes.olp as olp,  files.atime as atime,
-               files.title as filetitle,
-               files.mtime as mtime,  '(' || group_concat(tags.tag, ' ') || ')' as tags, '(' || group_concat(aliases.alias, ' ') || ')' as aliases,
-               '(' || group_concat(RTRIM (refs.\"type\", '\"') || ':' || LTRIM(refs.ref, '\"'), ' ') || ')' as refs
-             FROM nodes
-             LEFT JOIN files ON files.file = nodes.file
-             LEFT JOIN tags ON tags.node_id = nodes.id
-             LEFT JOIN aliases ON aliases.node_id = nodes.id
-             LEFT JOIN refs ON refs.node_id = nodes.id
-             GROUP BY nodes.id)
-             -- end from clause"
-                  where-clause
-                  order-by-clause
-                  limit-clause) "\n")))
+         (query (org-roam-db-super-query-clause :where-clause where-clause :order-by-clause order-by-clause :limit-clause limit-clause)))
     (delve-query-do-super-query query)))
 
 ;;;###autoload
@@ -338,8 +315,8 @@ If INCLUDE-TITLES, search for titles as well.
 If TAG-FUZZY, search tags fuzzyly.
 If TITLE-FUZZY, search titles fuzzyly.
 FILTER-CLAUSE, SORT-CLAUSE, and LIMIT are arguments to `delve-show--query-nodes."
-  (let* ((query (delve-show-create-query input :include-titles include-titles :tag-fuzzy tag-fuzzy :title-fuzzy title-fuzzy :filter-clause :sort-clause sort-clause :limit limit)))
-    (-map #'delve--zettel-create (funcall (delve--query-fn query)))))
+  (let* ((query (delve-show-create-query input :include-titles include-titles :tag-fuzzy tag-fuzzy :title-fuzzy title-fuzzy :filter-clause filter-clause :sort-clause sort-clause :limit limit)))
+    (-map (-compose #'delve--zettel-node #'delve--zettel-create) (funcall (delve--query-fn query)))))
 
 (provide 'delve-show)
 ;;; delve-show.el ends here
