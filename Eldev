@@ -1,0 +1,13 @@
+; -*- mode: emacs-lisp; lexical-binding: t -*-
+
+;; explicitly set main file
+(setf eldev-project-main-file "delve-show.el")
+
+;; Uncomment some calls below as needed for your project.
+(eldev-use-package-archive 'gnu)
+(eldev-use-package-archive 'melpa-unstable)
+
+(eldev-use-plugin 'autoloads)
+
+;; remove annoying org-roam v2 message
+(setq org-roam-v2-ack t)

@@ -23,6 +23,8 @@
 
 (require 'cl-lib)
 (require 'delve)
+(require 'sexp-string)
+
 (declare-function copy-list "cl-lib")
 ;; -----------------------------------------------------------
 ;; * variables
@@ -63,91 +65,8 @@ Defaults,
 
 ;;; Vars:
 
-(defvar delve-show-predicates
-  '((or  :name or  :transform
-         ((`(or . ,clauses) `(or ,@(mapcar #' rec clauses)))))
-    (not :name not :transform
-         ((`(not . ,clauses) `(not ,@(mapcar #' rec clauses)))))
-    (and :name and
-         :transform
-         ((`(and . ,clauses) `(and ,@(mapcar #' rec clauses)))))
-    (titles :name titles :aliases (title aliases alias)
-            :transform
-            ((`(,(or 'titles 'title 'aliases 'alias) . ,rest)
-              `(or
-                ,(-tree-map
-                  (lambda (elem)
-                    (if (member elem '(or and))
-                        elem `(or
-                               ,@(mapcan (lambda (elem)
-                                           (mapcar (lambda (elem)
-                                                     `(like title ,elem))
-                                                   (delve-show--format-vals :title elem)))
-                                         (rec elem))))) (cons 'and rest))
-                ,(-tree-map
-                  (lambda (elem)
-                    (if (member elem '(or and))
-                        elem `(or
-                               ,@(mapcan (lambda (elem)
-                                           (mapcar (lambda (elem)
-                                                     `(like aliases ',elem))
-                                                   (delve-show--format-vals :title elem)))
-                                         (rec elem))))) (cons 'and rest))))))
-    (tags :name tags :aliases (tag)
-          :transform
-          ((`(,(or 'tags 'tag) . ,rest)
-            (-tree-map
-             (lambda (elem)
-               (if (member elem '(or and))
-                   elem `(or
-                          ,@(mapcan (lambda (elem)
-                                      (mapcar (lambda (elem)
-                                                `(like tags ',elem))
-                                              (delve-show--format-vals :tags elem)))
-                                    (rec elem))))) (cons 'and rest)))))
-    (olp :name olp
-         :transform
-         ((`(olp . ,rest)
-           `(or
-             ,(-tree-map
-               (lambda (elem)
-                 (if (member elem '(or and))
-                     elem `(or
-                            ,@(mapcan (lambda (elem)
-                                        (mapcar (lambda (elem)
-                                                  `(like filetitle ',elem))
-                                                (delve-show--format-vals :title elem)))
-                                      (rec elem))))) (cons 'and rest))
-
-             ,(-tree-map
-               (lambda (elem)
-                 (if (member elem '(or and))
-                     elem `(or
-                            ,@(mapcan (lambda (elem)
-                                        (mapcar (lambda (elem)
-                                                  `(like olp ',elem))
-                                                (delve-show--format-vals :tags elem)))
-                                      (rec elem))))) (cons 'and rest))))))
-    (context :name context
-             :transform
-             ((`(context . ,rest)
-               (rec `(or (tags ,@rest)
-                         (olp ,@rest))))))
-    (level :name level :aliases (l d depth)
-           :transform
-           ((`(,(or 'level 'l 'd 'depth) . ,rest)
-             (-tree-map (lambda (elem) (if (member elem '(or and)) elem `(= level ,(string-to-number elem)))) (cons 'and rest)))))
-    (all :name all
-         :transform
-         ((`(all . ,rest)
-           (rec `(or (context ,@rest)
-                     (titles ,@rest))))))
-    (query :name query
-           :transform
-           (((pred stringp) (delve-show--variations element))
-            ('nil 'nil)
-            ((pred symbolp) (delve-show--variations (symbol-name element)))))))
-
+(defcustom delve-show-predicates 'nil
+  "Predicates for `sexp-string'.")
 (defvar delve-show-default-predicate-boolean 'and)
 (defcustom delve-show-default-predicate 'tags
   "Parser type for delve-show.
@@ -160,12 +79,99 @@ E.g.
 
 ;;; Code:
 
+(defun delve-show--set-predicates ()
+  (setq delve-show-predicates
+        '((or  :name or  :transform
+               ((`(or . ,clauses) `(or ,@(mapcar #' rec clauses)))))
+          (not :name not :transform
+               ((`(not . ,clauses) `(not ,@(mapcar #' rec clauses)))))
+          (and :name and
+               :transform
+               ((`(and . ,clauses) `(and ,@(mapcar #' rec clauses)))))
+          (titles :name titles :aliases (title aliases alias)
+                  :transform
+                  ((`(,(or 'titles 'title 'aliases 'alias) . ,rest)
+                    `(or
+                      ,(-tree-map
+                        (lambda (elem)
+                          (if (member elem '(or and))
+                              elem `(or
+                                     ,@(mapcan (lambda (elem)
+                                                 (mapcar (lambda (elem)
+                                                           `(like title ,elem))
+                                                         (delve-show--format-vals :title elem)))
+                                               (rec elem))))) (cons 'and rest))
+                      ,(-tree-map
+                        (lambda (elem)
+                          (if (member elem '(or and))
+                              elem `(or
+                                     ,@(mapcan (lambda (elem)
+                                                 (mapcar (lambda (elem)
+                                                           `(like aliases ',elem))
+                                                         (delve-show--format-vals :title elem)))
+                                               (rec elem))))) (cons 'and rest))))))
+          (tags :name tags :aliases (tag)
+                :transform
+                ((`(,(or 'tags 'tag) . ,rest)
+                  (-tree-map
+                   (lambda (elem)
+                     (if (member elem '(or and))
+                         elem `(or
+                                ,@(mapcan (lambda (elem)
+                                            (mapcar (lambda (elem)
+                                                      `(like tags ',elem))
+                                                    (delve-show--format-vals :tags elem)))
+                                          (rec elem))))) (cons 'and rest)))))
+          (olp :name olp
+               :transform
+               ((`(olp . ,rest)
+                 `(or
+                   ,(-tree-map
+                     (lambda (elem)
+                       (if (member elem '(or and))
+                           elem `(or
+                                  ,@(mapcan (lambda (elem)
+                                              (mapcar (lambda (elem)
+                                                        `(like filetitle ',elem))
+                                                      (delve-show--format-vals :title elem)))
+                                            (rec elem))))) (cons 'and rest))
+
+                   ,(-tree-map
+                     (lambda (elem)
+                       (if (member elem '(or and))
+                           elem `(or
+                                  ,@(mapcan (lambda (elem)
+                                              (mapcar (lambda (elem)
+                                                        `(like olp ',elem))
+                                                      (delve-show--format-vals :tags elem)))
+                                            (rec elem))))) (cons 'and rest))))))
+          (context :name context
+                   :transform
+                   ((`(context . ,rest)
+                     (rec `(or (tags ,@rest)
+                               (olp ,@rest))))))
+          (level :name level :aliases (l d depth)
+                 :transform
+                 ((`(,(or 'level 'l 'd 'depth) . ,rest)
+                   (-tree-map (lambda (elem) (if (member elem '(or and)) elem `(= level ,(string-to-number elem)))) (cons 'and rest)))))
+          (all :name all
+               :transform
+               ((`(all . ,rest)
+                 (rec `(or (context ,@rest)
+                           (titles ,@rest))))))
+          (query :name query
+                 :transform
+                 (((pred stringp) (delve-show--variations element))
+                  ('nil 'nil)
+                  ((pred symbolp) (delve-show--variations (symbol-name element))))))))
+
+(delve-show--set-predicates)
 (defun delve-show--query-string-to-sexp (input &optional boolean)
   "Parse string INPUT where BOOLEAN is default boolean.
 Look at `sexp-string--query-string-to-sexp' for more information."
   (sexp-string--query-string-to-sexp :input input
                                      :predicates delve-show-predicates
-                                     :default-boolean boolean delve-show-default-predicate-boolean
+                                     :default-boolean (or boolean delve-show-default-predicate-boolean)
                                      :default-predicate delve-show-default-predicate
                                      :pex-function nil))
 
@@ -173,7 +179,7 @@ Look at `sexp-string--query-string-to-sexp' for more information."
   "Return transformed form of QUERY against `:transform'.
 Look at `sexp-string--transform-query' for more information."
   (sexp-string--transform-query :query query
-                                :type :tranform
+                                :type :transform
                                 :predicates delve-show-predicates
                                 :ignore 't))
 
@@ -285,7 +291,45 @@ Only works on `ethiopia' and `america'."
                             (_ sort-clause)))
          (limit-clause (if (or limit delve-show-max-results)
                            (format "limit %d" (or limit delve-show-max-results))))
-         (query (org-roam-db-super-query-clause :where-clause where-clause :order-by-clause order-by-clause :limit-clause limit-clause)))
+         (query (string-join
+                 (list
+                  "
+SELECT id, file, filetitle, level, todo, pos, priority,
+  scheduled, deadline, title, properties, olp,
+  atime, mtime, tags, aliases, refs FROM
+  (
+  SELECT id, file, filetitle, \"level\", todo, pos, priority,
+    scheduled, deadline, title, properties, olp, atime,
+    mtime, '(' || group_concat(tags, ' ') || ')' as tags,
+    aliases, refs FROM
+    -- outer from clause
+      (
+      SELECT  id,  file, filetitle, \"level\", todo,  pos, priority,  scheduled, deadline ,
+        title, properties, olp, atime,  mtime, tags,
+        '(' || group_concat(aliases, ' ') || ')' as aliases,
+        refs FROM
+        -- inner from clause
+          (
+          SELECT  nodes.id as id,  nodes.file as file,  nodes.\"level\" as \"level\",
+            nodes.todo as todo,   nodes.pos as pos,  nodes.priority as priority,
+            nodes.scheduled as scheduled,  nodes.deadline as deadline,  nodes.title as title,
+            nodes.properties as properties,  nodes.olp as olp,  files.atime as atime,
+            files.title as filetitle,
+            files.mtime as mtime,  tags.tag as tags,    aliases.alias as aliases,
+            '(' || group_concat(RTRIM (refs.\"type\", '\"') || ':' || LTRIM(refs.ref, '\"'), ' ') || ')' as refs
+          FROM nodes
+            LEFT JOIN files ON files.file = nodes.file
+            LEFT JOIN tags ON tags.node_id = nodes.id
+            LEFT JOIN aliases ON aliases.node_id = nodes.id
+            LEFT JOIN refs ON refs.node_id = nodes.id
+          GROUP BY nodes.id, tags.tag, aliases.alias )
+        -- end inner from clause
+      GROUP BY id, tags )
+    -- end outer from clause
+  GROUP BY id)"
+                  where-clause
+                  order-by-clause
+                  limit-clause) "\n")))
     (delve-query-do-super-query query)))
 
 ;;;###autoload
