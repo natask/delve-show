@@ -8,7 +8,7 @@
 ;; Version: 0.0.2
 ;; Keywords: matching delve org-roam
 ;; Homepage: https://github.com/savnkk/delve-show
-;; Package-Requires: ((emacs "26.1") (delve "0.9.3") (sexp-string "0.0.1"))
+;; Package-Requires: ((emacs "26.1") (delve "0.9.3") (sexp-string "0.0.2"))
 ;;
 ;; This file is not part of GNU Emacs.
 ;;
@@ -71,7 +71,7 @@ Defaults,
     (and :name and
          :transform
          ((`(and . ,clauses) `(and ,@(mapcar #' rec clauses)))))
-    (titles :name titles :aliases '(title aliases alias)
+    (titles :name titles :aliases (title aliases alias)
             :transform
             ((`(,(or 'titles 'title 'aliases 'alias) . ,rest)
               `(or
@@ -93,7 +93,7 @@ Defaults,
                                                      `(like aliases ',elem))
                                                    (delve-show--format-vals :title elem)))
                                          (rec elem))))) (cons 'and rest))))))
-    (tags :name tags :aliases '(tag)
+    (tags :name tags :aliases (tag)
           :transform
           ((`(,(or 'tags 'tag) . ,rest)
             (-tree-map
@@ -133,7 +133,7 @@ Defaults,
              ((`(context . ,rest)
                (rec `(or (tags ,@rest)
                          (olp ,@rest))))))
-    (level :name level :aliases '(l d depth)
+    (level :name level :aliases (l d depth)
            :transform
            ((`(,(or 'level 'l 'd 'depth) . ,rest)
              (-tree-map (lambda (elem) (if (member elem '(or and)) elem `(= level ,(string-to-number elem)))) (cons 'and rest)))))
@@ -159,12 +159,23 @@ E.g.
   :group 'delve-show)
 
 ;;; Code:
-(declare-function delve-show--query-string-to-sexp "ext:delve-show" (query) t)
-(declare-function delve-show--transform-query "ext:delve-show" (query) t)
-(declare-function delve-show--stringify-query "ext:delve-show" (query) t)
-(fset 'delve-show--query-string-to-sexp
-      (sexp-string--define-query-string-to-sexp-fn  "delve-show"))
-(fset 'delve-show--transform-query (sexp-string--define-transform-query-fn "delve-show" :transform))
+
+(defun delve-show--query-string-to-sexp (input &optional boolean)
+  "Parse string INPUT where BOOLEAN is default boolean.
+Look at `sexp-string--query-string-to-sexp' for more information."
+  (sexp-string--query-string-to-sexp :input input
+                                     :predicates delve-show-predicates
+                                     :default-boolean boolean delve-show-default-predicate-boolean
+                                     :default-predicate delve-show-default-predicate
+                                     :pex-function nil))
+
+(defun delve-show--transform-query (query)
+  "Return transformed form of QUERY against `:transform'.
+Look at `sexp-string--transform-query' for more information."
+  (sexp-string--transform-query :query query
+                                :type :tranform
+                                :predicates delve-show-predicates
+                                :ignore 't))
 
 ;; -----------------------------------------------------------
 ;; * code
@@ -225,12 +236,12 @@ Only works on `ethiopia' and `america'."
   "Format expand VAL as a TYPE."
   (mapcar
    (lambda (ft)
-    (format ft val))
-  (condition-case err
-      (--> (plist-get delve-show-data-type type)
-           (plist-get (plist-get delve-show-data-types type) it)
-           (plist-get it :formats))
-    (error (message "make sure format is defined in %s in delve-show-data-types.\n%s" delve-show-data-type err) (signal (car err) (cdr err))))))
+     (format ft val))
+   (condition-case err
+       (--> (plist-get delve-show-data-type type)
+            (plist-get (plist-get delve-show-data-types type) it)
+            (plist-get it :formats))
+     (error (message "make sure format is defined in %s in delve-show-data-types.\n%s" delve-show-data-type err) (signal (car err) (cdr err))))))
 
 (defun delve-show--wrap-list (lt)
   "Wrap list LT to match output of `delve-show--string-to-sexp'."
@@ -288,7 +299,7 @@ FILTER-CLAUSE, SORT-CLAUSE, and LIMIT are arguments to `delve-show--query-nodes.
   (let* ((delve-show-default-predicate (if include-titles 'all 'tags))
          (delve-show-data-type (list :tags (if tag-fuzzy :fuzzy :exact) :title (if title-fuzzy :fuzzy :exact)))
          (search-terms (if (listp input)
-                         (delve-show--wrap-list input)
+                           (delve-show--wrap-list input)
                          (delve-show--query-string-to-sexp input)))
          (query (delve-show--transform-query search-terms)))
     (delve--query-create
