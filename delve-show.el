@@ -353,7 +353,7 @@ FILTER-CLAUSE, SORT-CLAUSE, and LIMIT are arguments to `delve-show--query-nodes.
            (delve-show--query-nodes :conditions query :filter-clause filter-clause :sort-clause sort-clause :limit limit)))))
 
 ;;;###autoload
-(cl-defun delve-show (&optional (input 'nil) &key (include-titles 'nil) (tag-fuzzy 'nil) (title-fuzzy 'nil) filter-clause sort-clause limit)
+(cl-defun delve-show (&optional (input 'nil) &key (include-titles 't) (tag-fuzzy 't) (title-fuzzy 't) filter-clause sort-clause limit)
   "Open delve buffer based on INPUT.
 If INCLUDE-TITLES, search for titles as well.
 If TAG-FUZZY, search tags fuzzyly.
@@ -364,7 +364,7 @@ FILTER-CLAUSE, SORT-CLAUSE, and LIMIT are arguments to `delve-show--query-nodes.
     (switch-to-buffer (delve--new-buffer "Result Buffer" (list query)))))
 
 ;;;###autoload
-(cl-defun delve-show-results (&optional (input 'nil) &key (include-titles 'nil) (tag-fuzzy 'nil) (title-fuzzy 'nil) filter-clause sort-clause limit)
+(cl-defun delve-show-results (&optional (input 'nil) &key (include-titles 't) (tag-fuzzy 't) (title-fuzzy 't) filter-clause sort-clause limit)
   "Return query results based on INPUT.
 If INCLUDE-TITLES, search for titles as well.
 If TAG-FUZZY, search tags fuzzyly.
@@ -372,6 +372,15 @@ If TITLE-FUZZY, search titles fuzzyly.
 FILTER-CLAUSE, SORT-CLAUSE, and LIMIT are arguments to `delve-show--query-nodes."
   (let* ((query (delve-show-create-query input :include-titles include-titles :tag-fuzzy tag-fuzzy :title-fuzzy title-fuzzy :filter-clause filter-clause :sort-clause sort-clause :limit limit)))
     (-map (-compose #'delve--zettel-node #'delve--zettel-create) (funcall (delve--query-fn query)))))
+
+;;;###autoload
+(cl-defun delve-show-tags (&optional (input 'nil) &key (tag-fuzzy 't) filter-clause sort-clause limit)
+  "Open delve buffer matching tags based on INPUT.
+If TAG-FUZZY, search tags fuzzyly.
+FILTER-CLAUSE, SORT-CLAUSE, and LIMIT are arguments to `delve-show--query-nodes."
+  (interactive)
+  (let* ((query (delve-show-create-query input :tag-fuzzy tag-fuzzy  :filter-clause filter-clause :sort-clause sort-clause :limit limit)))
+    (switch-to-buffer (delve--new-buffer "Result Buffer" (list query)))))
 
 (provide 'delve-show)
 ;;; delve-show.el ends here
