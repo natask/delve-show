@@ -178,10 +178,11 @@ Look at `sexp-string--query-string-to-sexp' for more information."
 (defun delve-show--transform-query (query)
   "Return transformed form of QUERY against `:transform'.
 Look at `sexp-string--transform-query' for more information."
-  (sexp-string--transform-query :query query
-                                :type :transform
-                                :predicates delve-show-predicates
-                                :ignore 't))
+  (sexp-string-collapse-list (sexp-string--transform-query
+                              :query query
+                              :type :transform
+                              :predicates delve-show-predicates
+                              :ignore 't)))
 
 ;; -----------------------------------------------------------
 ;; * code
